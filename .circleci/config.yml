@@ -1,0 +1,54 @@
+version: 2.1
+
+commands:
+  declare-schema-name:
+    steps:
+      - run: 
+          name: Declare the dbt Cloud schema name
+          command: |
+            SCHEMA_NAME=$(echo "pr__${CIRCLE_SHA1}")
+            echo "$SCHEMA_NAME"
+            echo "export SCHEMA_NAME=${SCHEMA_NAME}" >> "$BASH_ENV"
+            source "$BASH_ENV"
+
+jobs:
+  ci:
+    docker:
+      - image: cimg/python:3.12
+    steps:
+      - checkout
+      - declare-schema-name
+      - run:
+          name: Install python dependencies
+          command: |
+            pip install -r .circleci/scripts/requirements.txt
+      - run:
+          name: Trigger and monitor dbt CI job
+          command: |
+            python .circleci/scripts/src/main.py --config "{
+              \"job_type\": 1,
+              \"base_url\": \"${DBT_CLOUD_BASE_URL}\", 
+              \"account_id\": \"${DBT_CLOUD_ACCOUNT_ID}\", 
+              \"ci_job_id\": \"${DBT_CLOUD_CI_JOB_ID}\",
+              \"service_token\": \"${DBT_CLOUD_CIRCLECI_SERVICE_TOKEN}\", 
+              \"git_branch\": \"${CIRCLE_BRANCH}\", 
+              \"schema_name\": \"${SCHEMA_NAME}\"
+            }" 
+      - run:
+          name: Trigger and monitor dbt cleanup job
+          when: always
+          command: |
+            python .circleci/scripts/src/main.py --config "{
+              \"job_type\": 2,
+              \"base_url\": \"${DBT_CLOUD_BASE_URL}\", 
+              \"account_id\": \"${DBT_CLOUD_ACCOUNT_ID}\", 
+              \"cleanup_job_id\": \"${DBT_CLOUD_CLEANUP_JOB_ID}\", 
+              \"service_token\": \"${DBT_CLOUD_CIRCLECI_SERVICE_TOKEN}\", 
+              \"git_branch\": \"${CIRCLE_BRANCH}\",
+              \"schema_name\": \"${SCHEMA_NAME}\"
+            }" 
+
+workflows:
+  commit:
+    jobs:
+      - ci
